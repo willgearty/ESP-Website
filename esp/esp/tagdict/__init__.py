@@ -42,6 +42,7 @@ all_global_tags = {
     'student_medical_needs': (False, ""),
     'require_school_field': (True, ""),
     'teacherinfo_shirt_options': (False, ""),
+    'teacherinfo_shirt_sizes': (False, "Available sizes teachers can choose from. Example: ['S', 'M', 'L']"),
     'teacherinfo_shirt_type_selection': (False, ""),
     'teacher_profile_hide_fields': (False, ""),
     'student_grade_options': (False, ""),
