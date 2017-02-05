@@ -1176,9 +1176,41 @@ def update_email(**kwargs):
             for l in lists:
                 mailman.remove_list_member(l, old_email)
 
+# Helper method to allow available shirt sizes teachers can choose from to be
+# customized by a tag.
+# Includes checks on tag data to make sure the tag exists and is a nonempty
+# list containing only strings; if it's not, display standard options (passed
+# here as aparameter).
+# The logic is wrapped in a function to avoid importing Tag at the top-level
+# of a `models` file
 
-shirt_sizes = ('S', 'M', 'L', 'XL', 'XXL')
-shirt_sizes = tuple([('14/16', '14/16 (XS)')] + zip(shirt_sizes, shirt_sizes))
+def avail_sizes(std_ops, std=False):
+	''' Logic to display available shirt sizes for teachers to choose from'''
+	from esp.tagdict.models import Tag
+	sizes = Tag.getTag('teacherinfo_shirt_sizes')
+	if not sizes or type(sizes) != list or len(sizes) < 1:
+		std = True
+	else:
+		for x in sizes:
+			if type(x) != str:
+				std = True
+				break
+
+	if std:
+		# Tag was invalid; display standard options
+			sizes = std_ops[1:]
+			sizes = tuple([(std_ops[0], std_ops[0])] + zip(sizes, sizes))
+	else:
+		# Display tag's contents.
+		if len(sizes) == 1:
+				sizes = (sizes[0], sizes[0])
+		else:
+				# here sizes is a list of at least two strings
+				sizes = tuple([(sizes[0], sizes[0])]
+						+ zip(sizes[1:], sizes[1:]))
+	return sizes
+shirt_sizes = avail_sizes(('XS', 'S', 'M', 'L', 'XL', 'XXL'))
+
 shirt_types = (('M', 'Plain'), ('F', 'Fitted (for women)'))
 food_choices = ('Anything', 'Vegetarian', 'Vegan')
 food_choices = zip(food_choices, food_choices)
