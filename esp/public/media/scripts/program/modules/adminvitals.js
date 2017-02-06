@@ -109,7 +109,7 @@ function fillStats(data)
     html_string = html_string.concat("<tr><td></td>");
     for (var i = 0; i < shirtnum.sizes.length; i++)
     {
-	html_string = html_string.concat("<th class='smaller'>"+shirtnum.sizes[i]+"</th>");
+	html_string = html_string.concat("<th class='smaller'>"+shirtnum.sizes[i][1]+"</th>");
     }
     html_string = html_string.concat("</tr>");
     // Types
