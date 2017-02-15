@@ -115,6 +115,7 @@ function fill_class_popup(clsid, classes_data) {
     .append(make_attrib_para("Location", class_info.location))
     .append(make_attrib_para("Grade Range", class_info.grade_range))
     .append(make_attrib_para("Category", class_info.category))
+    .append(make_attrib_para("Style", class_info.class_style))
     //.append("<p>Difficulty: " + class_info.difficulty))
     .append(make_attrib_para("Prereqs", class_info.prereqs))
     // Ensure the class description gets HTML-escaped
@@ -223,24 +224,6 @@ function createClassTitleTd(clsObj) {
     );
 }
 
-function createSectionListTd(clsObj) {
-    var td = $j('<td/>', {
-        'class': 'clsmiddle',
-        'style': 'font-size: 12px',
-        'width': '40px',
-        'title': "Control the enrollment of the class's sections",
-    });
-    $j.each(clsObj.sections, function(index, sectionId) {
-        if (index) {
-            td.append(', ');
-        }
-        var section = sections[sectionId];
-        var href = '/teach/' + base_url + '/select_students/' + section.id;
-        td.append($j('<a/>', {href: href}).text(
-            'Sec. ' + section.index));
-    });
-    return td;
-}
 function createTeacherListTd(clsObj) {
     var td = $j('<td/>', {
         'class': 'clsleft classname',
@@ -309,7 +292,6 @@ function createClassRow(clsObj)
     var tr = $j(document.createElement('tr'));
     tr.append(
         createClassTitleTd(clsObj),
-        createSectionListTd(clsObj),
         createTeacherListTd(clsObj),
         createDeleteButtonTd(clsObj),
         createLinkButtonTd(clsObj, 'editclass', 'Edit'),
