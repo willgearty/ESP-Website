@@ -148,7 +148,7 @@ HOW_TO_GET_TO_PROGRAM = (
 class StudentInfoForm(FormUnrestrictedOtherUser):
     """ Extra student-specific information """
     from esp.users.models import ESPUser
-    from esp.users.models import shirt_sizes, shirt_types, food_choices
+    from esp.users.models import get_shirt_sizes, shirt_types, food_choices
 
     gender = forms.ChoiceField(choices=[('', ''), ('M', 'Male'), ('F', 'Female')], required=False)
     graduation_year = forms.ChoiceField(choices=[('', '')]+[(str(ESPUser.YOGFromGrade(x)), str(x)) for x in range(7,13)])
@@ -158,8 +158,8 @@ class StudentInfoForm(FormUnrestrictedOtherUser):
     dob = forms.DateField(widget=SplitDateWidget(min_year=datetime.now().year-20))
     studentrep = forms.BooleanField(required=False)
     studentrep_expl = forms.CharField(required=False)
-    heard_about = DropdownOtherField(required=False, widget=DropdownOtherWidget(choices=zip(HEARD_ABOUT_ESP_CHOICES, HEARD_ABOUT_ESP_CHOICES)))#forms.CharField(required=False)
-    shirt_size = forms.ChoiceField(choices=([('','')]+list(shirt_sizes)), required=False)
+    heard_about = DropdownOtherField(required=False, widget=DropdownOtherWidget(choices=zip(HeardAboutESPChoices, HeardAboutESPChoices)))#forms.CharField(required=False)
+    shirt_size = forms.ChoiceField(choices=([('','')]+list(get_shirt_sizes())), required=False)
     shirt_type = forms.ChoiceField(choices=([('','')]+list(shirt_types)), required=False)
     food_preference = forms.ChoiceField(choices=([('','')]+list(food_choices)), required=False)
 
@@ -321,7 +321,7 @@ AFFILIATION_CHOICES = (
 class TeacherInfoForm(FormWithRequiredCss):
     """ Extra teacher-specific information """
 
-    from esp.users.models import shirt_sizes, shirt_types
+    from esp.users.models import get_shirt_sizes, shirt_types
     reimbursement_choices = [(False, 'I will pick up my reimbursement.'),
                              (True,  'Please mail me my reimbursement.')]
     from_here_answers = [ (True, "Yes"), (False, "No") ]
@@ -329,7 +329,7 @@ class TeacherInfoForm(FormWithRequiredCss):
     graduation_year = SizedCharField(length=4, max_length=4, required=False)
     affiliation = DropdownOtherField(required=False, widget=DropdownOtherWidget(choices=AFFILIATION_CHOICES), label ='What is your affiliation with %s?' % settings.INSTITUTION_NAME)
     major = SizedCharField(length=30, max_length=32, required=False)
-    shirt_size = forms.ChoiceField(choices=([('','')]+list(shirt_sizes)), required=False)
+    shirt_size = forms.ChoiceField(choices=([('','')]+list(get_shirt_sizes())), required=False)
     shirt_type = forms.ChoiceField(choices=([('','')]+list(shirt_types)), required=False)
 
     def __init__(self, *args, **kwargs):

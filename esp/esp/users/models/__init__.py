@@ -1179,15 +1179,24 @@ def update_email(**kwargs):
 # Helper method to allow available shirt sizes teachers can choose from to be
 # customized by a tag.
 # Includes checks on tag data to make sure the tag exists and is a nonempty
-# list containing only strings; if it's not, display standard options (passed
-# here as aparameter).
-# The logic is wrapped in a function to avoid importing Tag at the top-level
-# of a `models` file
+# list containing only strings; if it's not, display standard options.
+# For future devs: there are some unused features here. The `sizes` variable
+# is returned as a tuple of ordered pairs, the first being the code-friendly
+# name, and the second being the "pretty" name. Thus far, little use has been
+# made of this feature, but the functionality exists here and is correctly
+# selected in downstream calls to this function.
+# You just have to modify this function (and possibly the Tag) to use
+# different input for the pair, rather than duplicating the inputted
+# sizes as it does as of writing this comment.
 
-def avail_sizes(std_ops, std=False):
+@staticmethod
+def get_shirt_sizes():
 	''' Logic to display available shirt sizes for teachers to choose from'''
+	std = False
+	std_ops = ('XS', 'S', 'M', 'L', 'XL', 'XXL')
 	from esp.tagdict.models import Tag
 	sizes = Tag.getTag('teacherinfo_shirt_sizes')
+	# check that Tag exits and Tag content is valid
 	if not sizes or type(sizes) != list or len(sizes) < 1:
 		std = True
 	else:
@@ -1198,18 +1207,17 @@ def avail_sizes(std_ops, std=False):
 
 	if std:
 		# Tag was invalid; display standard options
-			sizes = std_ops[1:]
-			sizes = tuple([(std_ops[0], std_ops[0])] + zip(sizes, sizes))
+		sizes = std_ops[1:]
+		sizes = tuple([(std_ops[0], std_ops[0])] + zip(sizes, sizes))
 	else:
 		# Display tag's contents.
 		if len(sizes) == 1:
-				sizes = (sizes[0], sizes[0])
+			sizes = (sizes[0], sizes[0])
 		else:
-				# here sizes is a list of at least two strings
-				sizes = tuple([(sizes[0], sizes[0])]
-						+ zip(sizes[1:], sizes[1:]))
+			# here sizes is a list of at least two strings
+			sizes = tuple([(sizes[0], sizes[0])]
+					+ zip(sizes[1:], sizes[1:]))
 	return sizes
-shirt_sizes = avail_sizes(('XS', 'S', 'M', 'L', 'XL', 'XXL'))
 
 shirt_types = (('M', 'Plain'), ('F', 'Fitted (for women)'))
 food_choices = ('Anything', 'Vegetarian', 'Vegan')
@@ -1227,7 +1235,7 @@ class StudentInfo(models.Model):
     studentrep_expl = models.TextField(blank=True, null=True)
     heard_about = models.TextField(blank=True, null=True)
     food_preference = models.CharField(max_length=256,blank=True,null=True)
-    shirt_size = models.CharField(max_length=5, blank=True, choices=shirt_sizes, null=True)
+    shirt_size = models.CharField(max_length=5, blank=True, choices=get_shirt_sizes(), null=True)
     shirt_type = models.CharField(max_length=20, blank=True, choices=shirt_types, null=True)
 
     medical_needs = models.TextField(blank=True, null=True)
@@ -1405,7 +1413,7 @@ class TeacherInfo(models.Model, CustomFormsLinkModel):
     college = models.CharField(max_length=128,blank=True, null=True)
     major = models.CharField(max_length=32,blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
-    shirt_size = models.CharField(max_length=5, blank=True, choices=shirt_sizes, null=True)
+    shirt_size = models.CharField(max_length=5, blank=True, choices=get_shirt_sizes(), null=True)
     shirt_type = models.CharField(max_length=20, blank=True, choices=shirt_types, null=True)
 
     @classmethod
