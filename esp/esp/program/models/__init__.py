@@ -1072,10 +1072,11 @@ class Program(models.Model, CustomFormsLinkModel):
                 shirt_count[shirt_type][shirt_size] = count
 
         shirts = {}
-		shirt_sizes = get_shirt_sizes() # easier than multiple calls below
+        shirt_sizes = get_shirt_sizes()
         shirts['teachers'] = [ { 'type': shirt_type[1], 'distribution':[ shirt_count[shirt_type[0]][shirt_size[0]] for shirt_size in shirt_sizes ] } for shirt_type in shirt_types ]
 
         return {'shirts' : shirts, 'shirt_sizes' : shirt_sizes, 'shirt_types' : shirt_types }
+
     #   Update cache whenever a class is approved or a teacher changes their profile
     getShirtInfo.depend_on_row('program.ClassSubject', lambda cls: {'self': cls.parent_program})
     getShirtInfo.depend_on_model('users.TeacherInfo')
@@ -1840,7 +1841,7 @@ class VolunteerOffer(models.Model):
     name = models.CharField(max_length=80, blank=True, null=True)
     phone = PhoneNumberField(blank=True, null=True)
 
-    shirt_size = models.CharField(max_length=5, blank=True, choices=get_shirt_sizes(), null=True)
+    shirt_size = models.CharField(max_length=5, blank=True, null=True)
     shirt_type = models.CharField(max_length=20, blank=True, choices=shirt_types, null=True)
 
     comments = models.TextField(blank=True, null=True)

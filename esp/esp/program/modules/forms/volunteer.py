@@ -37,7 +37,7 @@ from esp.cal.models import Event, EventType
 from esp.program.models import VolunteerRequest, VolunteerOffer
 from esp.utils.widgets import DateTimeWidget
 from localflavor.us.forms import USPhoneNumberField
-from esp.users.models import ESPUser, get_shirt_sizes, shirt_types
+from esp.users.models import ESPUser, get_shirt_sizes, DEFAULT_SHIRT_SIZES, shirt_types
 from esp.tagdict.models import Tag
 
 class VolunteerRequestForm(forms.Form):
@@ -95,7 +95,7 @@ class VolunteerOfferForm(forms.Form):
     email = forms.EmailField(label='E-mail address')
     phone = USPhoneNumberField(label='Phone number')
 
-    shirt_size = forms.ChoiceField(choices=([('','')]+list(get_shirt_sizes())), required=False)
+    shirt_size = forms.ChoiceField(choices=([('','')]+list(DEFAULT_SHIRT_SIZES)), required=False)
     shirt_type = forms.ChoiceField(choices=([('','')]+list(shirt_types)), required=False)
 
     requests = forms.MultipleChoiceField(choices=(), label='Timeslots', help_text='Sign up for one or more shifts; remember to avoid conflicts with your classes if you\'re teaching!', widget=forms.CheckboxSelectMultiple, required=False)
@@ -116,6 +116,7 @@ class VolunteerOfferForm(forms.Form):
         super(VolunteerOfferForm, self).__init__(*args, **kwargs)
         vrs = self.program.getVolunteerRequests()
         self.fields['requests'].choices = [(v.id, '%s: %s (%d more needed)' % (v.timeslot.pretty_time(), v.timeslot.description, v.num_volunteers - v.num_offers())) for v in vrs if v.num_offers() < v.num_volunteers] + [(v.id, '%s: %s (no more needed)' % (v.timeslot.pretty_time(), v.timeslot.description)) for v in vrs if v.num_offers() >= v.num_volunteers]
+        self.fields['shirt_sizes'].choices = get_shirt_sizes()
 
 
         #   Show t-shirt fields if specified by Tag (disabled by default)
