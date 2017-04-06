@@ -1189,14 +1189,18 @@ def update_email(**kwargs):
 # different input for the pair, rather than duplicating the inputted
 # sizes as it does as of writing this comment.
 
-DEFAULT_SHIRT_SIZES = ['S', 'M', 'L', 'XL', 'XXL']
+DEFAULT_SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL']
 
-@staticmethod
 def get_shirt_sizes():
     ''' Logic to display available shirt sizes for teachers to choose from'''
-    std = False
+    import ast
     from esp.tagdict.models import Tag
-    sizes = Tag.getTag('teacherinfo_shirt_sizes')
+    std = False
+    # Tags are imported as unicode strings; ast converts a unicode list to
+    # a list in a relatively safe manner; if literal_eval is *not* interpreted
+    # as a list, then the check below just uses the default/standard options
+    # given above
+    sizes = ast.literal_eval(Tag.getTag('teacherinfo_shirt_sizes'))
     # check that Tag exits and Tag content is valid
     if not sizes or type(sizes) != list or len(sizes) < 1:
         std = True

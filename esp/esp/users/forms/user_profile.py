@@ -333,8 +333,9 @@ class TeacherInfoForm(FormWithRequiredCss):
     shirt_type = forms.ChoiceField(choices=([('','')]+list(shirt_types)), required=False)
 
     def __init__(self, *args, **kwargs):
+        from esp.users.models import get_shirt_sizes
         super(TeacherInfoForm, self).__init__(*args, **kwargs)
-        self.fields['shirt_sizes'].choices = get_shirt_sizes()
+        self.fields['shirt_size'].choices = get_shirt_sizes()
         if Tag.getTag('teacherinfo_shirt_options') == 'False':
             del self.fields['shirt_size']
             del self.fields['shirt_type']
