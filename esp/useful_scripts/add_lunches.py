@@ -12,7 +12,7 @@ from esp.program.models import Program, StudentRegistration, RegistrationType
 from esp.program.models.class_ import ClassSection
 from esp.users.models import ESPUser
 
-program = Program.objects.get(id=115)  # Change me! (Splash 2014)
+program = Program.objects.get(id=134)  # Change me! (Spark 2017)
 relationship = RegistrationType.objects.get(name='Enrolled')
 
 srs = StudentRegistration.valid_objects().filter(
