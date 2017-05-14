@@ -24,26 +24,38 @@ else:
     assert command == 'ADD'
 
 def starts():
-    for h in [9, 10, 13, 14, 15, 16, 17, 18, 19]:
-        yield datetime(2017, 5, 11, h, 0)
-        yield datetime(2017, 5, 11, h, 30)
-    yield datetime(2017, 5, 11, 20, 0)
+    for h in [9, 10, 12, 13, 18, 19]:
+        yield datetime(2017, 5, 15, h, 0)
+        yield datetime(2017, 5, 15, h, 30)
+    yield datetime(2017, 5, 15, 14, 0)
+    yield datetime(2017, 5, 15, 20, 0)
 
-    for h in [9, 10, 15, 16, 17, 19]:
-        yield datetime(2017, 5, 12, h, 0)
-        yield datetime(2017, 5, 12, h, 30)
-    yield datetime(2017, 5, 12, 18, 0)
-    yield datetime(2017, 5, 12, 20, 0)
+    for h in [9, 10, 13, 15, 16, 17, 18]:
+        yield datetime(2017, 5, 16, h, 0)
+        yield datetime(2017, 5, 16, h, 30)
+    yield datetime(2017, 5, 16, 14, 0)
+
+    for h in [9, 10, 12, 13, 17]:
+        yield datetime(2017, 5, 17, h, 0)
+        yield datetime(2017, 5, 17, h, 30)
+    yield datetime(2017, 5, 17, 14, 0)
+    yield datetime(2017, 5, 17, 18, 0)
+
+    for h in [9, 10, 13, 14, 15, 16, 17, 18]:
+        yield datetime(2017, 5, 18, h, 0)
+        yield datetime(2017, 5, 18, h, 30)
+    yield datetime(2017, 5, 18, 19, 30)
+    yield datetime(2017, 5, 18, 20, 0)
 
     for h in range(9, 20):
-        yield datetime(2017, 5, 13, h, 0)
-        yield datetime(2017, 5, 13, h, 30)
-    yield datetime(2017, 5, 13, 20, 0)
+        yield datetime(2017, 5, 19, h, 0)
+        yield datetime(2017, 5, 19, h, 30)
+    yield datetime(2017, 5, 19, 20, 0)
 
-    yield datetime(2017, 5, 14, 15, 0)
-    yield datetime(2017, 5, 14, 15, 30)
-    yield datetime(2017, 5, 14, 16, 0)
-    yield datetime(2017, 5, 14, 16, 30)
+    for h in range(9, 20):
+        yield datetime(2017, 5, 20, h, 0)
+        yield datetime(2017, 5, 20, h, 30)
+    yield datetime(2017, 5, 20, 20, 0)
 
 for start in starts():
     slot = Event()
