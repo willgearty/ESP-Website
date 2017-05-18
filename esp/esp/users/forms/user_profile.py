@@ -361,6 +361,11 @@ class TeacherInfoForm(FormWithRequiredCss):
                 elif affiliation == AFFILIATION_NONE:
                     msg = u'Please enter your school or employer.'
                 self.add_error('affiliation', msg)
+        # Make sure teacher's shirt size is one of the currently available sizes.
+        shirt_size_field = self.fields['shirt_size']
+        shirt_size = shirt_size_field.widget.decompress(cleaned_data.get('shirt_size'))
+        if shirt_size not in shirt_sizes:
+            self.add_error('shirt_size', u'Sorry, your shirt size is not one of the currently available sizes: %s. Please enter an available size.' % shirt_sizes)
         return cleaned_data
 
 TeacherInfoForm.base_fields['graduation_year'].widget.attrs['size'] = 4
