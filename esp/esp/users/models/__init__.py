@@ -1198,7 +1198,7 @@ def get_shirt_sizes():
     try:
         sizes = json.loads(Tag.getTag('teacherinfo_shirt_sizes', default=''))
         # Tag is valid; display tag's contents with the "no size" option.
-        sizes += ('No shirt, thanks', 'No shirt, thanks')
+        sizes = [u'No shirt, thanks'] + sizes
         sizes = tuple(zip(sizes, sizes))
     except ValueError as e:
         if Tag.getTag('teacherinfo_shirt_sizes'):
