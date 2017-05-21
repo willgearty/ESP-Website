@@ -1189,41 +1189,22 @@ def update_email(**kwargs):
 # different input for the pair, rather than duplicating the inputted
 # sizes as it does as of writing this comment.
 
-DEFAULT_SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL']
+DEFAULT_SHIRT_SIZES = ['No shirt, thanks', 'XS', 'S', 'M', 'L', 'XL', 'XXL']
 
 def get_shirt_sizes():
     ''' Logic to display available shirt sizes for teachers to choose from'''
     from esp.tagdict.models import Tag
-    std = False
-    # check that Tag exits and Tag content is valid
-    sizes = Tag.getTag('teacherinfo_shirt_sizes')
-    if not sizes:
-        std = True
-    else:
-        # Tag exists; check that its content is valid.
-        # If the next line does not output a nonempty list of strings, then
-        # use the default options given above
-        sizes = sizes.replace(' ', '').split(',')
-        if not sizes or type(sizes) != list or len(sizes) < 1:
-            std = True
-        else:
-            for x in sizes:
-                if type(x) != str:
-                    std = True
-                    break
-
-    if std:
+    import json
+    try:
+        sizes = json.loads(Tag.getTag('teacherinfo_shirt_sizes', default=''))
+        # Tag is valid; display tag's contents with the "no size" option.
+        sizes += ('No shirt, thanks', 'No shirt, thanks')
+        sizes = tuple(zip(sizes, sizes))
+    except ValueError as e:
+        if Tag.getTag('teacherinfo_shirt_sizes'):
+            logging.exception(e)
         # Tag was invalid; display standard options
-        sizes = DEFAULT_SHIRT_SIZES[1:]
-        sizes = tuple([(DEFAULT_SHIRT_SIZES[0], DEFAULT_SHIRT_SIZES[0])] + zip(sizes, sizes))
-    else:
-        # Tag is valid; display tag's contents.
-        if len(sizes) == 1:
-            sizes = (sizes[0], sizes[0])
-        else:
-            # here sizes is a list of at least two strings
-            sizes = tuple([(sizes[0], sizes[0])]
-                    + zip(sizes[1:], sizes[1:]))
+        sizes = tuple(zip(DEFAULT_SHIRT_SIZES, DEFAULT_SHIRT_SIZES))
     return sizes
 
 shirt_types = (('M', 'Plain'), ('F', 'Fitted (for women)'))

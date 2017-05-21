@@ -329,7 +329,7 @@ class TeacherInfoForm(FormWithRequiredCss):
     graduation_year = SizedCharField(length=4, max_length=4, required=False)
     affiliation = DropdownOtherField(required=False, widget=DropdownOtherWidget(choices=AFFILIATION_CHOICES), label ='What is your affiliation with %s?' % settings.INSTITUTION_NAME)
     major = SizedCharField(length=30, max_length=32, required=False)
-    shirt_size = forms.ChoiceField(choices=([('','')]+list(DEFAULT_SHIRT_SIZES)), required=False)
+    shirt_size = forms.ChoiceField(choices=([('','')]+list(DEFAULT_SHIRT_SIZES)), required=True)
     shirt_type = forms.ChoiceField(choices=([('','')]+list(shirt_types)), required=False)
 
     def __init__(self, *args, **kwargs):
