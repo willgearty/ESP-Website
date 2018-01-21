@@ -3,7 +3,6 @@ python:
   - "2.7"
 services:
   - memcached
-  - postgres
 env:
   global:
     - DJANGO_SETTINGS_MODULE=esp.settings
