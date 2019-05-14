@@ -59,7 +59,7 @@ from django.template.loader import render_to_string
 from django.http import HttpResponse
 from django import forms
 
-from esp.program.models import Program, TeacherBio, RegistrationType, ClassSection, StudentRegistration
+from esp.program.models import Program, TeacherBio, RegistrationType, ClassSection, StudentRegistration, VolunteerOffer
 from esp.program.forms import ProgramCreationForm, StatisticsQueryForm
 from esp.program.setup import prepare_program, commit_program
 from esp.program.controllers.confirmation import ConfirmationEmailController
@@ -297,7 +297,7 @@ def find_user(userstr):
         #try pk
         if userstr.isnumeric():
             user_q = user_q | Q(id=userstr)
-        #try e-mail?
+        #try email?
         if '@' in userstr:  # but don't even bother hitting the DB if it doesn't even have an '@'
             user_q = user_q | Q(email__iexact=userstr)
             user_q = user_q | Q(contactinfo__e_mail__iexact=userstr)  # search parent contact info, too
@@ -392,6 +392,7 @@ def userview(request):
         'printers': StudentRegCore.printer_names(),
         'all_programs': Program.objects.all().order_by('-id'),
         'program': program,
+        'volunteer': VolunteerOffer.objects.filter(request__program = program, user = user).exists(),
     }
     return render_to_response("users/userview.html", request, context )
 
@@ -401,6 +402,20 @@ def deactivate_user(request):
 
 def activate_user(request):
     return activate_or_deactivate_user(request, activate=True)
+
+@admin_required
+def unenroll_student(request):
+    if request.method != 'POST' or 'user_id' not in request.POST or 'program' not in request.POST:
+        return HttpResponseBadRequest('')
+    users = ESPUser.objects.filter(id=request.POST['user_id'])
+    if users.count() != 1:
+        return HttpResponseBadRequest('')
+    else:
+        user = users[0]
+        sections = user.getSections(program = request.POST['program'])
+        for sec in sections:
+            sec.unpreregister_student(user)
+        return HttpResponseRedirect('/manage/userview?username=%s' % user.username)
 
 @admin_required
 def activate_or_deactivate_user(request, activate):
@@ -434,6 +449,7 @@ def newprogram(request):
        #try:
         template_prog_id = int(request.GET["template_prog"])
         tprogram = Program.objects.get(id=template_prog_id)
+        request.session['template_prog'] = template_prog_id
         template_prog = {}
         template_prog.update(tprogram.__dict__)
         del template_prog["id"]
@@ -477,7 +493,7 @@ def newprogram(request):
 
             new_prog = pcf.save(commit = True)
 
-            commit_program(new_prog, context['perms'], context['modules'], context['cost'], context['sibling_discount'])
+            commit_program(new_prog, context['perms'], context['cost'], context['sibling_discount'])
 
             # Create the default resource types now
             default_restypes = Tag.getProgramTag('default_restypes', program=new_prog)
@@ -485,8 +501,13 @@ def newprogram(request):
                 resource_type_labels = json.loads(default_restypes)
                 resource_types = [ResourceType.get_or_create(x, new_prog) for x in resource_type_labels]
 
-            #   Force all ProgramModuleObjs and their extensions to be created now
-            new_prog.getModules()
+            # Force all ProgramModuleObjs and their extensions to be created now
+            # If we are using another program as a template, let's copy the seq and required values from that program.
+            if 'template_prog' in request.session:
+                old_prog = Program.objects.get(id=request.session['template_prog'])
+                new_prog.getModules(old_prog=old_prog)
+            else:
+                new_prog.getModules()
 
             manage_url = '/manage/' + new_prog.url + '/resources'
 

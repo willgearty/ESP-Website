@@ -35,7 +35,9 @@ Learning Unlimited, Inc.
 from esp.program.modules.base import ProgramModuleObj, needs_admin, aux_call
 from esp.program.modules.handlers.teacherclassregmodule import TeacherClassRegModule
 
+from esp.cal.models import Event
 from esp.program.models import ClassSubject, ClassSection, ClassFlagType
+from esp.tagdict.models import Tag
 from esp.users.models import ESPUser, User
 
 from esp.utils.web import render_to_response
@@ -63,7 +65,7 @@ class AdminClass(ProgramModuleObj):
             "seq": 1,
             }
 
-    form_choice_types = ['status', 'reg_status', 'room', 'resources', 'times', 'min_grade', 'max_grade']
+    form_choice_types = ['status', 'reg_status', 'room', 'resources', 'times', 'min_grade', 'max_grade', 'duration']
     def getFormChoices(self, field_str):
         """ A more compact function for zipping up the options available on class
         management forms. """
@@ -87,6 +89,8 @@ class AdminClass(ProgramModuleObj):
             if self.program.grade_max:
                 max_grade = self.program.grade_max
             return ((i, str(i)) for i in range(min_grade, max_grade + 1))
+        if field_str == 'duration':
+            return self.program.getDurations()
 
     def timeslot_counts(self):
         timeslots = self.program.getTimeSlots()
@@ -216,7 +220,7 @@ class AdminClass(ProgramModuleObj):
                 cls_cancel_form.data = request.POST
                 cls_cancel_form.is_bound = True
                 if cls_cancel_form.is_valid():
-                    #   Call the Class{Subject,Section}.cancel() method to e-mail and remove students, etc.
+                    #   Call the Class{Subject,Section}.cancel() method to email and remove students, etc.
                     cls_cancel_form.cleaned_data['target'].cancel(email_students=True, include_lottery_students=cls_cancel_form.cleaned_data['email_lottery_students'], text_students=cls_cancel_form.cleaned_data['text_students'], email_teachers = cls_cancel_form.cleaned_data['email_teachers'], explanation=cls_cancel_form.cleaned_data['explanation'], unschedule=cls_cancel_form.cleaned_data['unschedule'])
                     cls_cancel_form = None
             else:
@@ -327,8 +331,6 @@ class AdminClass(ProgramModuleObj):
     @aux_call
     @needs_admin
     def coteachers(self, request, tl, one, two, module, extra, prog):
-        from esp.users.models import ESPUser
-
         #   Allow submitting class ID via either GET or POST.
         if 'clsid' in request.GET:
             clsid = request.GET['clsid']
@@ -351,9 +353,6 @@ class AdminClass(ProgramModuleObj):
         # set txtTeachers and coteachers....
         if not 'coteachers' in request.POST:
             coteachers = cls.get_teachers()
-            coteachers = [ user for user in coteachers
-                           if user.id != request.user.id           ]
-
             txtTeachers = ",".join([str(user.id) for user in coteachers ])
 
         else:
@@ -367,8 +366,12 @@ class AdminClass(ProgramModuleObj):
         if 'op' in request.POST:
             op = request.POST['op']
 
-        conflictingusers = []
         error = False
+
+        old_coteachers_set = set(cls.get_teachers())
+        ccc = ClassCreationController(self.program)
+
+        conflictinguser = ''
 
         if op == 'add':
 
@@ -384,16 +387,19 @@ class AdminClass(ProgramModuleObj):
                                            'ajax': ajax,
                                            'txtTeachers': txtTeachers,
                                            'coteachers': coteachers,
-                                           'error': error})
+                                           'error': error,
+                                           'conflict': []})
 
             # add schedule conflict checking here...
             teacher = ESPUser.objects.get(id = request.POST['teacher_selected'])
 
             if cls.conflicts(teacher):
-                conflictingusers.append(teacher.first_name+' '+teacher.last_name)
+                conflictinguser = (teacher.first_name+' '+teacher.last_name)
             else:
                 coteachers.append(teacher)
                 txtTeachers = ",".join([str(coteacher.id) for coteacher in coteachers ])
+                ccc.associate_teacher_with_class(cls, teacher)
+                ccc.send_class_mail_to_directors(cls)
 
         elif op == 'del':
             ids = request.POST.getlist('delete_coteachers')
@@ -405,31 +411,19 @@ class AdminClass(ProgramModuleObj):
             coteachers = newcoteachers
             txtTeachers = ",".join([str(coteacher.id) for coteacher in coteachers ])
 
-
-        elif op == 'save':
-            #            if
-            for teacher in coteachers:
-                if cls.conflicts(teacher):
-                    conflictingusers.append(teacher.first_name+' '+teacher.last_name)
-            if len(conflictingusers) == 0:
-                for teacher in cls.get_teachers():
-                    cls.removeTeacher(teacher)
-
-                # add bits for all new (and old) coteachers
-                ccc = ClassCreationController(self.program)
-                for teacher in coteachers:
-                    ccc.associate_teacher_with_class(cls, teacher)
-                ccc.send_class_mail_to_directors(cls)
-                return self.goToCore(tl)
-
-
+            new_coteachers_set = set(coteachers)
+            to_be_deleted = old_coteachers_set - new_coteachers_set
+            for teacher in to_be_deleted:
+                cls.removeTeacher(teacher)
+            ccc.send_class_mail_to_directors(cls)
 
         return render_to_response(self.baseDir()+'coteachers.html', request,
                                   {'class': cls,
                                    'ajax': ajax,
                                    'txtTeachers': txtTeachers,
                                    'coteachers': coteachers,
-                                   'conflicts': conflictingusers})
+                                   'conflict': conflictinguser,
+                                   'program': prog})
 
     @aux_call
     @needs_admin
@@ -460,6 +454,66 @@ class AdminClass(ProgramModuleObj):
             return self.goToCore(tl)
 
         return TeacherClassRegModule.teacherlookup_logic(request, tl, one, two, module, extra, prog, newclass)
+
+    @aux_call
+    @needs_admin
+    def classavailability(self, request, tl, one, two, module, extra, prog):
+        """ Shows the collective availability of teachers for a class. """
+        cls = self.getClass(request,extra)
+        time_options = prog.getTimeSlots()
+        #   Group contiguous blocks
+        if not Tag.getBooleanTag('availability_group_timeslots', default=True):
+            time_groups = [list(time_options)]
+        else:
+            time_groups = Event.group_contiguous(list(time_options))
+
+        teachers = cls.get_teachers()
+
+        meeting_times = cls.all_meeting_times
+        unscheduled_sections = []
+        for section in cls.get_sections():
+            if len(section.get_meeting_times()) == 0:
+                unscheduled_sections.append(section)
+
+        viable_times = []
+        unavail_teachers = {}
+        teaching_teachers = {}
+        conflict_found = False
+        for time in time_options:
+            unavail_teachers[time] = []
+            teaching_teachers[time] = []
+            for teacher in teachers:
+                if time not in teacher.getAvailableTimes(prog, True):
+                    unavail_teachers[time].append(teacher)
+                    conflict_found = True
+                if time in teacher.getTaughtTimes(prog, exclude = [cls]):
+                    teaching_teachers[time].append(teacher)
+            if (len(unavail_teachers[time]) + len(teaching_teachers[time])) == 0:
+                viable_times.append(time)
+
+        context =   {
+                        'groups': [
+                            [
+                                {
+                                    'available': t in viable_times,
+                                    'slot': t,
+                                    'id': t.id,
+                                    'section': cls.get_section(t),
+                                    'unavail_teachers': unavail_teachers.get(t),
+                                    'teaching_teachers': teaching_teachers.get(t),
+                                }
+                            for t in group]
+                        for group in time_groups]
+                    }
+        context['class'] = cls
+        context['unscheduled'] = unscheduled_sections
+        context['conflict_found'] = conflict_found
+        # this seems kinda hacky, but it's probably fine for now
+        context['is_overbooked'] = sum([sec.duration for sec in cls.get_sections()]) > sum([Event.total_length(events).seconds/3600.0 for events in Event.group_contiguous(viable_times)])
+        context['num_groups'] = len(context['groups'])
+        context['program'] = prog
+
+        return render_to_response(self.baseDir()+'classavailability.html', request, context)
 
     class Meta:
         proxy = True

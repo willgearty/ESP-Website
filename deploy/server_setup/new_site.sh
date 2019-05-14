@@ -139,7 +139,7 @@ echo "ESPHOSTNAME=\"$ESPHOSTNAME\"" >> $BASEDIR/.espsettings
 
 while [[ ! -n $GROUPEMAIL ]]; do
     echo
-    echo -n "Enter your group's contact e-mail address --> "
+    echo -n "Enter your group's contact email address --> "
     read GROUPEMAIL
 done
 echo "Contact forms on the site will direct mail to $GROUPEMAIL."
@@ -158,18 +158,18 @@ while [[ ! -n $GROUPNAME ]]; do
     read GROUPNAME
 done
 echo "GROUPNAME=\"$GROUPNAME\"" >> $BASEDIR/.espsettings
-echo "In printed materials and e-mails your group will be referred to as"
+echo "In printed materials and emails your group will be referred to as"
 echo "$INSTITUTION $GROUPNAME.  To substitute a more detailed name in"
 echo "some printed materials, set the 'full_group_name' Tag."
 
 while [[ ! -n $EMAILHOST ]]; do
     echo
-    echo "Enter the hostname you will be using for e-mail"
+    echo "Enter the hostname you will be using for email"
     echo -n "  (default = $ESPHOSTNAME) --> "
     read EMAILHOST
     EMAILHOST=${EMAILHOST:-$ESPHOSTNAME}
 done
-echo "Selected e-mail host: $EMAILHOST"
+echo "Selected email host: $EMAILHOST"
 echo "EMAILHOST=\"$EMAILHOST\"" >> $BASEDIR/.espsettings
 
 while [[ ! -n $TIMEZONE ]]; do
@@ -290,8 +290,8 @@ CACHE_PREFIX = "${SITENAME}ESP"
 
 # Default addresses to send archive/bounce info to
 DEFAULT_EMAIL_ADDRESSES = {
-        'archive': 'learninguarchive@gmail.com',
-        'bounces': 'learningubounces@gmail.com',
+        'archive': 'splashwebsitearchive@learningu.org',
+        'bounces': 'emailbounces@learningu.org',
         'support': '$GROUPEMAIL',
         'membership': '$GROUPEMAIL',
         'default': '$GROUPEMAIL',
@@ -338,7 +338,7 @@ EOF
     # to get the right perms on creation.
     for ext in .shell.log .log ; do
         touch "$DJANGO_LOGDIR/$SITENAME-django$ext"
-        chown -R $WWW_USER:$WWW_USER "$DJANGO_LOGDIR/$SITENAME"*
+        chown $WWW_USER:$WWW_USER "$DJANGO_LOGDIR/$SITENAME-django$ext"
     done
 
     echo "Generated Django settings overrides, saved to:"
@@ -385,7 +385,7 @@ then
     chown -R $WWW_USER:$WWW_USER "$BASEDIR"
     cd $CURDIR
 
-    #   Set initial Site (used in password recovery e-mail)
+    #   Set initial Site (used in password recovery email)
     # TODO(benkraft): do this in python.
     sudo -u postgres psql -c "DELETE FROM django_site; INSERT INTO django_site (id, domain, name) VALUES (1, '$ESPHOSTNAME', '$INSTITUTION $GROUPNAME Site');" $DBNAME
 
@@ -432,7 +432,7 @@ WSGIDaemonProcess $SITENAME processes=2 threads=1 maximum-requests=500 display-n
 EOF
     service apache2 graceful
     # TODO(benkraft): put the renewal script in git too.
-    /lu/certbot/renew_lu.py
+    /lu/scripts/certbot/renew_lu.py
     echo "Added VirtualHost to Apache configuration $APACHE_CONF_FILE"
 
     echo "Apache has been set up, and a new SSL cert has been requested."

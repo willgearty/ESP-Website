@@ -75,13 +75,13 @@ class ResourceController(object):
                            "all ResourceRequests for this resource type.",
                            log=False)
 
-    def add_or_edit_restype(self, form):
+    def add_or_edit_restype(self, form, choices = None):
         if form.cleaned_data['id'] is not None:
             new_restype = ResourceType.objects.get(id=form.cleaned_data['id'])
         else:
             new_restype = ResourceType()
 
-        form.save_restype(self.program, new_restype)
+        form.save_restype(self.program, new_restype, choices)
         return new_restype
 
     def delete_classroom(self, id):
@@ -92,8 +92,8 @@ class ResourceController(object):
             room.associated_resources().delete()
         rooms.delete()
 
-    def add_or_edit_classroom(self, form):
-        form.save_classroom(self.program)
+    def add_or_edit_classroom(self, form, furnishings = None):
+        form.save_classroom(self.program, furnishings = furnishings)
 
     def delete_equipment(self, id):
         #   delete this resource for all time blocks within the program

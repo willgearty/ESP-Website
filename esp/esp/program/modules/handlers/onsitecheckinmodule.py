@@ -80,7 +80,7 @@ class OnSiteCheckinModule(ProgramModuleObj):
         if event=="paid":
             self.updatePaid(False)
 
-        recs = Record.objects.get_or_create(user=self.student,
+        recs, created = Record.objects.get_or_create(user=self.student,
                                             event=event,
                                             program=self.program)
         recs.delete()
@@ -210,28 +210,63 @@ class OnSiteCheckinModule(ProgramModuleObj):
         context['results'] = results
         return render_to_response(self.baseDir()+'barcodecheckin.html', request, context)
 
-
+    @aux_call
+    @needs_onsite
+    def ajaxbarcodecheckin(self, request, tl, one, two, module, extra, prog):
+        """
+        POST to this view to check-in a student with a user ID.
+        POST data:
+          'code':          The student's ID.
+        """
+        json_data = {}
+        if request.method == 'POST' and 'code' in request.POST:
+            code = request.POST['code']
+            students = ESPUser.objects.filter(id=code)
+            if not students.exists():
+                json_data['message'] = '%s is not a user!' % code
+            else:
+                student = students[0]
+                info_string = student.name() + " (" + str(code) + ")"
+                if student.isStudent():
+                    existing = Record.user_completed(student, 'attended', prog)
+                    if existing:
+                        json_data['message'] = '%s is already checked in!' % info_string
+                    else:
+                        new = Record(user=student, program=prog, event='attended')
+                        new.save()
+                        json_data['message'] = '%s is now checked in!' % info_string
+                else:
+                    json_data['message'] = '%s is not a student!' % info_string
+        return HttpResponse(json.dumps(json_data), content_type='text/json')
 
     @aux_call
     @needs_onsite
     def checkin(self, request, tl, one, two, module, extra, prog):
-        user, found = search_for_user(request, self.program.students_union())
-        if not found:
-            return user
+        if request.method == 'POST' and 'userid' in request.POST:
+            error = False
+            message = None
+            user = ESPUser.objects.filter(id = request.POST['userid']).first()
+            if user:
+                self.student = user
+                for key in ['attended','paid','liab','med']:
+                    if key in request.POST:
+                        self.create_record(key)
+                    else:
+                        self.delete_record(key)
+                message = "Check-in updated for " + user.username
+            else:
+                error = True
 
-        self.student = user
+            context = {'error': error, 'message': message}
+            return render_to_response('users/usersearch.html', request, context)
 
-        if request.method == 'POST':
-            for key in ['attended','paid','liab','med']:
-                if key in request.POST:
-                    self.create_record(key)
-                else:
-                    self.delete_record(key)
+        else:
+            user, found = search_for_user(request, self.program.students_union())
+            if not found:
+                return user
 
-
-            return self.goToCore(tl)
-
-        return render_to_response(self.baseDir()+'checkin.html', request, {'module': self, 'program': prog})
+            self.student = user
+            return render_to_response(self.baseDir()+'checkin.html', request, {'module': self, 'program': prog})
 
 
     class Meta:

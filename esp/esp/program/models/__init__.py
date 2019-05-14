@@ -53,6 +53,7 @@ from django.db.models.query import QuerySet
 from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.safestring import mark_safe
 
 from argcache import cache_function, cache_function_for, wildcard
 from esp.cal.models import Event
@@ -124,7 +125,7 @@ class ProgramModule(models.Model):
             super(ProgramModule.CannotGetClassException, self).__init__(msg)
 
     def __unicode__(self):
-        return u'Program Module: %s' % self.admin_title
+        return u'{}'.format(self.admin_title)
 
 
 class ArchiveClass(models.Model):
@@ -243,8 +244,8 @@ class Program(models.Model, CustomFormsLinkModel):
     grade_min = models.IntegerField()
     grade_max = models.IntegerField()
     director_email = models.EmailField(max_length=75) # director contact email address used for from field and display
-    director_cc_email = models.EmailField(blank=True, default='', max_length=75, help_text='If set, automated outgoing mail (except class cancellations) will be sent to this address instead of the director email. Use this if you do not want to spam the director email with teacher class registration emails. Otherwise, leave this field blank.') # "carbon-copy" address for most automated outgoing mail to or CC'd to directors (except class cancellations)
-    director_confidential_email = models.EmailField(blank=True, default='', max_length=75, help_text='If set, confidential emails such as financial aid applications will be sent to this address instead of the director email.')
+    director_cc_email = models.EmailField(blank=True, default='', max_length=75, help_text=mark_safe('If set, automated outgoing mail (except class cancellations) will be sent to this address <i>instead of</i> the director email. Use this if you do not want to spam the director email with teacher class registration emails. Otherwise, leave this field blank.')) # "carbon-copy" address for most automated outgoing mail to or CC'd to directors (except class cancellations)
+    director_confidential_email = models.EmailField(blank=True, default='', max_length=75, help_text='If set, confidential emails such as financial aid applications will be sent to this address <i>instead of</i> the director email.')
     program_size_max = models.IntegerField(null=True, help_text='Set to 0 for no cap. Student registration performance is best when no cap is set.')
     program_allow_waitlist = models.BooleanField(default=False)
     program_modules = models.ManyToManyField(ProgramModule,
@@ -674,7 +675,13 @@ class Program(models.Model, CustomFormsLinkModel):
     def getScheduleConstraints(self):
         return ScheduleConstraint.objects.filter(program=self).select_related()
     getScheduleConstraints.depend_on_model('program.ScheduleConstraint')
+    # Sadly, the way django signals work, we have to depend on every subclass
+    # of BooleanToken, not just BooleanToken itself.
     getScheduleConstraints.depend_on_model('program.BooleanToken')
+    getScheduleConstraints.depend_on_model('program.ScheduleTestTimeblock')
+    getScheduleConstraints.depend_on_model('program.ScheduleTestOccupied')
+    getScheduleConstraints.depend_on_model('program.ScheduleTestCategory')
+    getScheduleConstraints.depend_on_model('program.ScheduleTestSectionList')
 
     def lock_schedule(self, lock_level=1):
         """ Locks all schedule assignments for the program, for convenience
@@ -780,7 +787,7 @@ class Program(models.Model, CustomFormsLinkModel):
         ts_list = Event.collapse(list(self.getTimeSlots()), tol=timedelta(minutes=15))
         time_sum = timedelta()
         for t in ts_list:
-            time_sum = time_sum + (t.end - t.start)
+            time_sum = time_sum + t.duration()
         return time_sum
 
     def dates(self):
@@ -799,15 +806,25 @@ class Program(models.Model, CustomFormsLinkModel):
 
     # @staticmethod --- applied below after the depend_on_model call
     @cache_function_for(60*60*24)
-    def current_program():
-        """ Guess the "current program", which is the first of the following programs that exists:
+    def current_programs():
+        """Guess a list of "current programs" by their time ranges.
 
-        - the shortest program such that the current time is between the
-          start of its first timeslot and the end of its last timeslot
-        - the program in the future (<100 years) that will start the soonest
-        - the program in the past that ended the most recently
+        - All programs' time ranges are determined by the start of their first
+          timeslot and the end of their last timeslot.
+        - If there are any programs currently running, any programs whose first
+          timeslot is in less than 60 days, or any programs whose last timeslot
+          was less than 30 days ago, we return all such programs as current
+          programs.
+        - Otherwise, the current program is the one program in the future (<100
+          years) that will start the soonest.
+        - If still no such program exists, the current program is the program
+          in the past that ended the most recently.
+        - Test programs (programs with "test" in their name) are skipped.
         """
+
         now = datetime.now()
+        near_future = now + timedelta(days=60)
+        near_past = now - timedelta(days=30)
         far_future = now + timedelta(days=36500)
         def currentness_penalty(program):
             # The lower the return value (lexicographically), the more
@@ -822,9 +839,17 @@ class Program(models.Model, CustomFormsLinkModel):
             if start <= now <= end:
                 # most current: a program running now.
                 # tiebreak by shortest
-                return (0, (end - start))
+                return (-3, (end - start))
+            elif now <= start <= near_future:
+                # second most current: program coming up quite soon
+                # tiebreak by soonest
+                return (-2, start)
+            elif near_past <= end <= now:
+                # third most current: program that ended quite recently
+                # tiebreak by most recent
+                return (-1, now - end)
             elif now <= start <= far_future:
-                # second most current: program coming up in <100 years
+                # fourth most current: program coming up in <100 years
                 # tiebreak by soonest
                 return (1, start)
             elif start <= now:
@@ -835,11 +860,18 @@ class Program(models.Model, CustomFormsLinkModel):
                 # soonest
                 return (3, start)
         programs = Program.objects.all()
+        always_current_cutoff = (0, 0)
         if programs:
-            return min(programs, key=currentness_penalty)
-        return None
-    current_program.depend_on_model('cal.Event')
-    current_program = staticmethod(current_program)
+            tagged_programs = list(sorted((currentness_penalty(prog), prog)
+                for prog in programs))
+            if tagged_programs[0][0] < always_current_cutoff:
+                return [prog for (penalty, prog) in tagged_programs
+                        if penalty < always_current_cutoff]
+            else:
+                return [tagged_programs[0][1]]
+        return []
+    current_programs.depend_on_model('cal.Event')
+    current_programs = staticmethod(current_programs)
 
     def date_range(self):
         """ Returns string range from earliest timeslot to latest timeslot, or NoneType if no timeslots set """
@@ -861,14 +893,17 @@ class Program(models.Model, CustomFormsLinkModel):
             return None
 
     @cache_function
-    def getResourceTypes(self, include_classroom=False, include_global=None):
-        #   Show all resources pertaining to the program that aren't these two hidden ones.
+    def getResourceTypes(self, include_classroom=False, include_global=None, include_hidden=True):
+        #   Show all resources pertaining to the program (except those of types that are excluded).
         from esp.resources.models import ResourceType
 
-        if include_classroom:
+        if include_hidden:
             exclude_types = []
         else:
-            exclude_types = [ResourceType.get_or_create('Classroom')]
+            exclude_types = list(ResourceType.objects.filter(hidden=True))
+
+        if not include_classroom:
+            exclude_types += [ResourceType.get_or_create('Classroom')]
 
         if include_global is None:
             include_global = Tag.getTag('allow_global_restypes')
@@ -925,7 +960,7 @@ class Program(models.Model, CustomFormsLinkModel):
             n = len(t_list)
             for i in range(0, n):
                 for j in range(i, n):
-                    time_option = t_list[j].end - t_list[i].start
+                    time_option = Event.total_length([t_list[i], t_list[j]])
                     durationSeconds = time_option.seconds
                     #   If desired, round up to the nearest 15 minutes
                     if round:
@@ -933,7 +968,7 @@ class Program(models.Model, CustomFormsLinkModel):
                     else:
                         rounded_seconds = durationSeconds
                     if (max_seconds is None) or (durationSeconds <= max_seconds):
-                        durationDict[Decimal(durationSeconds) / 3600] = \
+                        durationDict[(Decimal(durationSeconds) / 3600)] = \
                                         str(rounded_seconds / 3600) + ':' + \
                                         str((rounded_seconds / 60) % 60).rjust(2,'0')
 
@@ -957,7 +992,7 @@ class Program(models.Model, CustomFormsLinkModel):
         return li_types
 
     @cache_function
-    def getModules_cached(self, tl = None):
+    def getModules_cached(self, tl = None, old_prog = None):
         """ Gets a list of modules for this program. """
         from esp.program.modules import base
 
@@ -971,7 +1006,7 @@ class Program(models.Model, CustomFormsLinkModel):
             modules =  [ base.ProgramModuleObj.getFromProgModule(self, module)
                  for module in self.program_modules.filter(module_type = tl) ]
         else:
-            modules =  [ base.ProgramModuleObj.getFromProgModule(self, module)
+            modules =  [ base.ProgramModuleObj.getFromProgModule(self, module, old_prog)
                  for module in self.program_modules.all()]
 
         modules.sort(cmpModules)
@@ -984,9 +1019,9 @@ class Program(models.Model, CustomFormsLinkModel):
     getModules_cached.depend_on_row('modules.ClassRegModuleInfo', lambda modinfo: {'self': modinfo.program})
     getModules_cached.depend_on_row('modules.StudentClassRegModuleInfo', lambda modinfo: {'self': modinfo.program})
 
-    def getModules(self, user = None, tl = None):
+    def getModules(self, user = None, tl = None, old_prog = None):
         """ Gets modules for this program, optionally attaching a user. """
-        modules = self.getModules_cached(tl)
+        modules = self.getModules_cached(tl, old_prog)
         if user:
             for module in modules:
                 module.setUser(user)
@@ -1067,18 +1102,28 @@ class Program(models.Model, CustomFormsLinkModel):
         if 'class_approved' in teacher_dict:
             query = teacher_dict['class_approved']
             query = query.filter(registrationprofile__most_recent_profile=True)
-            query = query.values_list('registrationprofile__teacher_info__shirt_type',
-                                      'registrationprofile__teacher_info__shirt_size')
-            query = query.annotate(people=Count('id', distinct=True))
+            if not Tag.getBooleanTag('teacherinfo_shirt_type_selection'):
+                query = query.values_list('registrationprofile__teacher_info__shirt_size')
+                query = query.annotate(people=Count('id', distinct=True))
 
-            for row in query:
-                shirt_type, shirt_size, count = row
-                shirt_count[shirt_type][shirt_size] = count
+                for row in query:
+                    shirt_size, count = row
+                    shirt_count['M'][shirt_size] = count
+
+            else:
+                query = query.values_list('registrationprofile__teacher_info__shirt_type',
+                                          'registrationprofile__teacher_info__shirt_size')
+                query = query.annotate(people=Count('id', distinct=True))
+
+                for row in query:
+                    shirt_type, shirt_size, count = row
+                    shirt_count[shirt_type][shirt_size] = count
 
         shirts = {}
         shirts['teachers'] = [ { 'type': shirt_type[1], 'distribution':[ shirt_count[shirt_type[0]][shirt_size[0]] for shirt_size in shirt_sizes ] } for shirt_type in shirt_types ]
 
         return {'shirts' : shirts, 'shirt_sizes' : shirt_sizes, 'shirt_types' : shirt_types }
+
     #   Update cache whenever a class is approved or a teacher changes their profile
     getShirtInfo.depend_on_row('program.ClassSubject', lambda cls: {'self': cls.parent_program})
     getShirtInfo.depend_on_model('users.TeacherInfo')
@@ -1546,7 +1591,7 @@ class BooleanToken(models.Model):
         other models, such as:
         - Whether a user is violating a schedule constraint
         - Whether a user is in a particular age range
-        - Whether a user has been e-mailed in the last month
+        - Whether a user has been emailed in the last month
 
         Also meant to be combined into logical expressions for queries/tests
         (see BooleanExpression below).
@@ -1569,7 +1614,13 @@ class BooleanToken(models.Model):
     @cache_function
     def subclass_instance(self):
         return get_subclass_instance(BooleanToken, self)
+    # Sadly, the way django signals work, we have to depend on every subclass
+    # of BooleanToken, not just BooleanToken itself.
     subclass_instance.depend_on_row('program.BooleanToken', lambda bt: {'self': bt})
+    subclass_instance.depend_on_row('program.ScheduleTestTimeblock', lambda bt: {'self': bt})
+    subclass_instance.depend_on_row('program.ScheduleTestOccupied', lambda bt: {'self': bt})
+    subclass_instance.depend_on_row('program.ScheduleTestCategory', lambda bt: {'self': bt})
+    subclass_instance.depend_on_row('program.ScheduleTestSectionList', lambda bt: {'self': bt})
 
     @staticmethod
     def evaluate(stack, *args, **kwargs):
@@ -1633,7 +1684,13 @@ class BooleanExpression(models.Model):
     @cache_function
     def get_stack(self):
         return [s.subclass_instance() for s in self.booleantoken_set.all().order_by('seq')]
+    # Sadly, the way django signals work, we have to depend on every subclass
+    # of BooleanToken, not just BooleanToken itself.
     get_stack.depend_on_row('program.BooleanToken', lambda token: {'self': token.exp})
+    get_stack.depend_on_row('program.ScheduleTestTimeblock', lambda token: {'self': token.exp})
+    get_stack.depend_on_row('program.ScheduleTestOccupied', lambda token: {'self': token.exp})
+    get_stack.depend_on_row('program.ScheduleTestCategory', lambda token: {'self': token.exp})
+    get_stack.depend_on_row('program.ScheduleTestSectionList', lambda token: {'self': token.exp})
 
     def reset(self):
         self.booleantoken_set.all().delete()

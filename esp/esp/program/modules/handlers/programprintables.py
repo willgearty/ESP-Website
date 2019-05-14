@@ -48,12 +48,16 @@ from esp.utils.query_utils import nest_Q
 from esp.program.models import VolunteerOffer
 
 from django.conf import settings
+from django.db.models import IntegerField, Case, When, Count
 from django.template.loader import render_to_string
 from django.utils.encoding import smart_str
+from django.utils.html import mark_safe
+from django.utils.html import format_html
 
 from decimal import Decimal
 import json
 import collections
+import copy
 
 class ProgramPrintables(ProgramModuleObj):
     """ This is extremely useful for printing a wide array of documents for your program.
@@ -307,27 +311,77 @@ class ProgramPrintables(ProgramModuleObj):
 
         return render_to_latex(self.baseDir()+template_name, context, extra)
 
+    @aux_call
     @needs_admin
-    def classesbyFOO(self, request, tl, one, two, module, extra, prog, sort_exp = lambda x,y: cmp(x,y), filt_exp = lambda x: True):
+    def classpopularity(self, request, tl, one, two, module, extra, prog):
+        classes = ClassSubject.objects.filter(parent_program = prog)
+        priorities = range(1, prog.studentclassregmoduleinfo.priority_limit + 1)
+
+        # We'll get the SRs and SSIs separately because otherwise we're joining two potentially large tables in a single query,
+        # which can result in an absurd number of rows for even moderate programs
+
+        # Fetch class SRs
+        sr_classes = classes
+        for priority in priorities:
+            sr_classes = sr_classes.annotate(**{'priority' + str(priority): Count(
+            Case(When(sections__studentregistration__relationship__name='Priority/' + str(priority), then=1), default=None, output_field=IntegerField()
+            ))})
+
+        # Fetch class SSI
+        ssi_classes = classes
+        ssi_classes = ssi_classes.annotate(ssi=Count('studentsubjectinterest', distinct=True))
+
+        # Merge the two (by ID)
+        by_id = {}
+        for subject in sr_classes:
+            by_id[subject.id] = subject
+        for subject in ssi_classes:
+            if subject.id in by_id:
+                by_id[subject.id].ssi = subject.ssi
+            else:
+                by_id[subject.id] = subject
+
+        # Sort
+        classes = sorted(by_id.values(), key=lambda s: s.ssi, reverse = True)
+
+        context = {'classes': classes, 'program': prog, 'priorities': [str(priority) for priority in priorities]}
+
+        return render_to_response(self.baseDir()+'classes_popularity.html', request, context)
+
+    @needs_admin
+    def classesbyFOO(self, request, tl, one, two, module, extra, prog, sort_exp = lambda x,y: cmp(x,y), filt_exp = lambda x: True, split_teachers = False):
         classes = ClassSubject.objects.filter(parent_program = self.program)
 
-        classes = [cls for cls in classes
-                   if cls.isAccepted()   ]
+        if 'clsids' in request.GET:
+            clsids = [int(clsid) for clsid in request.GET['clsids'].split(",")]
+            classes = [cls for cls in classes if cls.id in clsids]
+
+        if 'grade_min' in request.GET:
+            classes = [cls for cls in classes if cls.grade_max >= int(request.GET['grade_min'])]
+
+        if 'grade_max' in request.GET:
+            classes = [cls for cls in classes if cls.grade_min <= int(request.GET['grade_max'])]
+
+        if 'accepted' in request.GET:
+            classes = [cls for cls in classes if cls.status > 0]
+        elif 'cancelled' in request.GET:
+            classes = [cls for cls in classes if cls.isCancelled()]
+        elif 'all' not in request.GET:
+            classes = [cls for cls in classes if cls.status >= 0]
+
+        if 'scheduled' in request.GET:
+            classes = [cls for cls in classes if cls.all_meeting_times.count() > 0]
 
         classes = filter(filt_exp, classes)
 
-        if 'grade_min' in request.GET:
-            classes = filter(lambda x: x.grade_max > int(request.GET['grade_min']), classes)
-
-        if 'grade_max' in request.GET:
-            classes = filter(lambda x: x.grade_min < int(request.GET['grade_max']), classes)
-
-        if 'clsids' in request.GET:
-            clsids = request.GET['clsids'].split(',')
-            cls_dict = {}
+        if split_teachers:
+            classes_temp = []
             for cls in classes:
-                cls_dict[str(cls.id)] = cls
-            classes = [cls_dict[clsid] for clsid in clsids]
+                for teacher in cls.get_teachers():
+                    cls_split = copy.copy(cls)
+                    cls_split.split_teacher = teacher
+                    classes_temp.append(cls_split)
+            classes = classes_temp
 
         classes.sort(sort_exp)
 
@@ -342,24 +396,31 @@ class ProgramPrintables(ProgramModuleObj):
         if extra == 'csv':
             template_file = 'sections_list.csv'
 
-        if 'cancelled' in request.GET or (extra and 'cancelled' in extra):
-            sections = filter(lambda z: z.isCancelled(), sections)
-        else:
-            sections = filter(lambda z: (z.isAccepted() and z.meeting_times.count() > 0), sections)
-        sections = filter(filt_exp, sections)
+        if 'secids' in request.GET:
+            secids = [int(secid) for secid in request.GET['secids'].split(",")]
+            sections = [sec for sec in sections if sec.id in secids]
+
+        if 'clsids' in request.GET:
+            clsids = [int(clsid) for clsid in request.GET['clsids'].split(",")]
+            sections = [sec for sec in sections if sec.parent_class.id in clsids]
 
         if 'grade_min' in request.GET:
-            sections = filter(lambda x: (x.parent_class.grade_max > int(request.GET['grade_min'])), sections)
+            sections = [sec for sec in sections if sec.parent_class.grade_max >= int(request.GET['grade_min'])]
 
         if 'grade_max' in request.GET:
-            sections = filter(lambda x: (x.parent_class.grade_min < int(request.GET['grade_max'])), sections)
+            sections = [sec for sec in sections if sec.parent_class.grade_min <= int(request.GET['grade_max'])]
 
-        if 'secids' in request.GET:
-            clsids = request.GET['secids'].split(',')
-            cls_dict = {}
-            for cls in sections:
-                cls_dict[str(cls.id)] = cls
-            sections = [cls_dict[clsid] for clsid in clsids]
+        if 'accepted' in request.GET:
+            sections = [sec for sec in sections if sec.status > 0]
+        elif 'cancelled' in request.GET or (extra and 'cancelled' in extra):
+            sections = [sec for sec in sections if sec.isCancelled()]
+        elif 'all' not in request.GET:
+            sections = [sec for sec in sections if sec.status >= 0]
+
+        if 'scheduled' in request.GET:
+            sections = [sec for sec in sections if sec.meeting_times.count() > 0]
+
+        sections = filter(filt_exp, sections)
 
         sections.sort(sort_exp)
 
@@ -395,6 +456,22 @@ class ProgramPrintables(ProgramModuleObj):
             return cmp(one, other)
 
         return self.classesbyFOO(request, tl, one, two, module, extra, prog, cmp_title)
+
+    @aux_call
+    @needs_admin
+    def classesbyteacher(self, request, tl, one, two, module, extra, prog):
+        def cmp_teacher(one, other):
+            cmp0 = cmp(one.split_teacher.last_name.lower(), other.split_teacher.last_name.lower())
+
+            if cmp0 != 0:
+                return cmp0
+
+            return cmp(one, other)
+
+        def filt_teacher(cls):
+            return len(cls.get_teachers()) > 0
+
+        return self.classesbyFOO(request, tl, one, two, module, extra, prog, cmp_teacher, filt_teacher, True)
 
     @aux_call
     @needs_admin
@@ -644,11 +721,11 @@ class ProgramPrintables(ProgramModuleObj):
 
         for teacher in teachers:
             # get list of valid classes
-            classes = [ cls for cls in teacher.getTaughtSections()
+            classes = [cls for cls in teacher.getTaughtSections()
                     if cls.parent_program == self.program
                     and cls.meeting_times.all().exists()
                     and cls.resourceassignment_set.all().exists()
-                    and cls.isAccepted()                       ]
+                    and cls.status > 0]
             # now we sort them by time/title
             classes.sort()
             for cls in classes:
@@ -721,8 +798,12 @@ class ProgramPrintables(ProgramModuleObj):
             return ProgramPrintables.getSchedule(self.program, user, u'Student', room_numbers=False)
         elif key == 'teacher_schedule':
             return ProgramPrintables.getSchedule(self.program, user, u'Teacher')
+        elif key == 'teacher_schedule_dates':
+            return ProgramPrintables.getSchedule(self.program, user, u'Teacher', include_date=True)
         elif key == 'volunteer_schedule':
             return ProgramPrintables.getSchedule(self.program, user, u'Volunteer')
+        elif key == 'volunteer_schedule_dates':
+            return ProgramPrintables.getSchedule(self.program, user, u'Volunteer', include_date=True)
         elif key == 'transcript':
             return ProgramPrintables.getTranscript(self.program, user, 'text')
         elif key == 'transcript_html':
@@ -776,7 +857,7 @@ class ProgramPrintables(ProgramModuleObj):
         return t.render(Context(context))
 
     @staticmethod
-    def getSchedule(program, user, schedule_type=None, room_numbers=True):
+    def getSchedule(program, user, schedule_type=None, room_numbers=True, include_date=False):
 
         if schedule_type is None:
             if user.isStudent():
@@ -788,43 +869,75 @@ class ProgramPrintables(ProgramModuleObj):
 
         schedule = u''
         if schedule_type in [u'Student', u'Teacher']:
-            if room_numbers:
-                schedule = u"""
-    %s schedule for %s:
 
-     Time                   | Class                                  | Room\n""" % (schedule_type, user.name())
-            else:
-                schedule = u"""
-    %s schedule for %s:
-
-     Time                   | Class                                  \n""" % (schedule_type, user.name())
-            schedule += u'------------------------+---------------------------------------------------\n'
             if schedule_type == u'Student':
                 classes = ProgramPrintables.get_student_classlist(program, user)
+                classes.sort()
             elif schedule_type == u'Teacher':
                 classes = ProgramPrintables.get_teacher_classlist(program, user)
+                classes.sort()
+
+            schedule = format_html(u"<p> {} {} {} {} {} {} </p>",
+                                    schedule_type,
+                                    " schedule for ",
+                                    user.name(),
+                                    " for ",
+                                    program.niceName(),
+                                    ":")
+            schedule += format_html(u" {} {} {} {} </th>",
+                                    mark_safe("<table cellspacing=0 cellpadding=10 border=1 width=100%><tr><th width=20%>"),
+                                    "Time",
+                                    mark_safe("</th><th width=60%>"),
+                                    "Class")
+            if room_numbers:
+                schedule += format_html(u"{} {} </th>",
+                                        mark_safe("<th width=20%>"),
+                                        "Room")
+            schedule += format_html(u"</tr>")
             for cls in classes:
-                rooms = cls.prettyrooms()
-                if len(rooms) == 0:
-                    rooms = u' N/A'
+                times = cls.friendly_times(include_date=include_date)
+                if len(times) == 0:
+                    # don't show classes with no times
+                    continue
                 else:
-                    rooms = u' ' + u", ".join(rooms)
+                    times = ' ' + ', '.join(times)
+                schedule += format_html(u"<tr><td> {} </td><td> {} </td>",
+                                        str(times),
+                                        cls.title())
                 if room_numbers:
-                    schedule += u'%s|%s|%s\n' % ((u' '+u",".join(cls.friendly_times())).ljust(24), (u' ' + cls.title()).ljust(40), rooms)
-                else:
-                    schedule += u'%s|%s\n' % ((u' '+u",".join(cls.friendly_times())).ljust(24), (u' ' + cls.title()).ljust(40))
+                    rooms = cls.prettyrooms()
+                    if len(rooms) == 0:
+                        rooms = 'N/A'
+                    else:
+                        rooms = ' ' + ', '.join(rooms)
+                    schedule += format_html(u"<td> {} </td>",
+                                            str(rooms))
+                schedule += format_html(u"</tr>")
+            schedule += format_html(u"</table>")
 
         elif schedule_type == u'Volunteer':
-            schedule = u"""
-Volunteer schedule for %s:
-
- Time                   | Shift                                  \n""" % (user.name())
-            schedule += u'------------------------+----------------------------------------\n'
+            schedule = format_html(u"<p> {} {} {} {} {} {} </p>",
+                                   schedule_type,
+                                   " schedule for ",
+                                   user.name(),
+                                   " for ",
+                                   program.niceName(),
+                                   ":")
+            schedule += format_html(u" {} {} {} {} </th>",
+                                    mark_safe("<table cellspacing=0 cellpadding=10 border=1 width=100%><tr><th width=35%>"),
+                                    "Time",
+                                    mark_safe("</th><th width=65%>"),
+                                    "Shift")
+            schedule += format_html(u"</tr>")
             shifts = user.volunteeroffer_set.filter(request__program=program).order_by('request__timeslot__start')
             for shift in shifts:
-                schedule += u' %s| %s\n' % (shift.request.timeslot.pretty_time().ljust(23), shift.request.timeslot.description.ljust(39))
+                schedule += format_html(u"<tr><td> {} </td><td> {} </td></tr>",
+                                        str(shift.request.timeslot.pretty_time(include_date=include_date)),
+                                        str(shift.request.timeslot.description))
+            schedule += format_html(u"</table>")
 
-        return schedule
+        return mark_safe(schedule)
+
 
     @aux_call
     @needs_admin

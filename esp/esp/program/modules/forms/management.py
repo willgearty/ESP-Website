@@ -6,6 +6,7 @@ from esp.resources.models import ResourceType, Resource
 from esp.program.modules.handlers.grouptextmodule import GroupTextModule
 
 from esp.program.models.class_ import ClassSubject, ClassSection
+from decimal import Decimal
 
 """ Forms for the new class management module.  Can be used elsewhere. """
 
@@ -32,6 +33,7 @@ class ClassManageForm(ManagementForm):
     reg_status = forms.ChoiceField(required=False, choices=())
     min_grade = forms.ChoiceField(choices=())
     max_grade = forms.ChoiceField(choices=())
+    duration = forms.ChoiceField(choices=())
     class_size = forms.IntegerField(label='Max. number of students')
     notes = forms.CharField(required=False, widget=forms.Textarea(attrs={'cols': 60, 'rows': 8}))
 
@@ -44,6 +46,10 @@ class ClassManageForm(ManagementForm):
                 prefix = kwargs['prefix'] + '-'
             initial_dict = self.load_data(self.cls, prefix)
             super(ClassManageForm, self).__init__(data=initial_dict, *args, **kwargs)
+            if self.cls.hasScheduledSections():
+                self.fields['duration'].widget.attrs['disabled'] = True
+                self.fields['duration'].widget.attrs['title'] = "At least one section of this class has already been scheduled"
+                self.fields['duration'].required = False
         else:
             super(ClassManageForm, self).__init__(*args, **kwargs)
 
@@ -51,11 +57,15 @@ class ClassManageForm(ManagementForm):
         if isinstance(cls.class_size_max, int):
             csm = cls.class_size_max
         else:  csm = 0
+        if cls.duration:
+            dur = cls.duration
+        else:  dur = Decimal(0)
         self.initial = {
             prefix+'status': cls.status,
             prefix+'reg_status': None,
             prefix+'min_grade': cls.grade_min,
             prefix+'max_grade': cls.grade_max,
+            prefix+'duration': dur,
             prefix+'notes': cls.directors_notes,
             prefix+'class_size': csm ,
             prefix+'clsid': cls.id}
@@ -63,8 +73,16 @@ class ClassManageForm(ManagementForm):
 
     def save_data(self, cls):
         cls.status = self.cleaned_data['status']
-        #   If the section's status has not already been marked, apply the subject's status.
+        cls.grade_min = self.cleaned_data['min_grade']
+        cls.grade_max = self.cleaned_data['max_grade']
+        if not cls.hasScheduledSections():
+            cls.duration = Decimal(self.cleaned_data['duration'])
+        cls.class_size_max = self.cleaned_data['class_size']
+        cls.directors_notes = self.cleaned_data['notes']
+
         for sec in cls.sections.all():
+            sec.duration = cls.duration
+            #   If the section's status has not already been marked, apply the subject's status.
             if sec.status == 0:
                 sec.status = self.cleaned_data['status']
             if self.cleaned_data['reg_status']:
@@ -73,14 +91,7 @@ class ClassManageForm(ManagementForm):
             if self.cleaned_data['class_size'] != cls.class_size_max and sec.max_class_capacity is not None:
                 sec.max_class_capacity = self.cleaned_data['class_size']
             sec.save()
-        cls.grade_min = self.cleaned_data['min_grade']
-        cls.grade_max = self.cleaned_data['max_grade']
-        cls.class_size_max = self.cleaned_data['class_size']
-        cls.directors_notes = self.cleaned_data['notes']
 
-        if cls.duration:
-            from decimal import Decimal
-            cls.duration = Decimal(str(cls.duration))
         cls.save()
 
 class SectionManageForm(ManagementForm):
@@ -145,10 +156,10 @@ class ClassCancellationForm(forms.Form):
     target = forms.ModelChoiceField(queryset=ClassSubject.objects.all(), widget=forms.HiddenInput)
     explanation = forms.CharField(widget=forms.Textarea(attrs={'rows': 4, 'cols': 60}), required=False, help_text='Optional but recommended')
     unschedule = forms.BooleanField(help_text='Check this box to unschedule all sections of this class, in order to free up space for others.  This will delete the original time and location and you won\'t be able to recover them.', required=False)
-    email_lottery_students = forms.BooleanField(help_text='Check this box to e-mail all students who applied for this class in a lottery, in addition to those that are actually enrolled.', required=False)
+    email_lottery_students = forms.BooleanField(help_text='Check this box to email all students who applied for this class in a lottery, in addition to those that are actually enrolled.', required=False)
     text_students = forms.BooleanField(help_text='Check this box to send a text message to students who have opted to receive text messages.', required=False)
     email_teachers = forms.BooleanField(initial=True, help_text='Check this box to notify all teachers of this class that this class has been cancelled.', required=False)
-    acknowledgement = forms.BooleanField(help_text='By checking this box, I acknowledge that all students in the class will be e-mailed and then removed from the class.  This operation cannot be undone.')
+    acknowledgement = forms.BooleanField(help_text='By checking this box, I acknowledge that all students in the class will be emailed and then removed from the class.  This operation cannot be undone.')
 
     def __init__(self, *args, **kwargs):
         initial = kwargs.pop('initial', {})
@@ -162,10 +173,10 @@ class SectionCancellationForm(forms.Form):
     target = forms.ModelChoiceField(queryset=ClassSection.objects.all(), widget=forms.HiddenInput)
     explanation = forms.CharField(widget=forms.Textarea(attrs={'rows': 4, 'cols': 60}), required=False, help_text='Optional but recommended')
     unschedule = forms.BooleanField(help_text='Check this box to unschedule this section in order to free up space for others.  This will delete the original time and location and you won\'t be able to recover them.', required=False)
-    email_lottery_students = forms.BooleanField(help_text='Check this box to e-mail students who applied for this section in a lottery, in addition to those that are actually enrolled.', required=False)
+    email_lottery_students = forms.BooleanField(help_text='Check this box to email students who applied for this section in a lottery, in addition to those that are actually enrolled.', required=False)
     text_students = forms.BooleanField(help_text='Check this box to send a text message to students who have opted to receive text messages.', required=False)
     email_teachers = forms.BooleanField(initial=True, help_text='Check this box to notify all teachers of this class that this section has been cancelled.', required=False)
-    acknowledgement = forms.BooleanField(help_text='By checking this box, I acknowledge that all students in the section will be e-mailed and then removed from the class.  This operation cannot be undone.')
+    acknowledgement = forms.BooleanField(help_text='By checking this box, I acknowledge that all students in the section will be emailed and then removed from the class.  This operation cannot be undone.')
 
     def __init__(self, *args, **kwargs):
         initial = kwargs.pop('initial', {})
